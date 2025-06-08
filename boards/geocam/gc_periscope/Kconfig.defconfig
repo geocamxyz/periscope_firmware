@@ -1,0 +1,6 @@
+if BOARD_GC_PERISCOPE
+
+config BOARD
+    default "gc_periscope"
+
+endif # BOARD_GC_PERISCOPE

@@ -1,0 +1,46 @@
+#include <dt-bindings/pinctrl/rpi-pico-rp2040-pinctrl.h>
+
+
+&pinctrl {
+	/* Motor Driver UART pins (GP0 TX, GP1 RX) */
+	uart0_default: uart0_default {
+		group1 {
+			pinmux = <UART0_TX_P0>;     /* GP0 -> MOTOR.TXD */
+		};
+		group2 {
+			pinmux = <UART0_RX_P1>;     /* GP1 -> MOTOR.RXD */
+			input-enable;
+		};
+	};
+
+	/* GNSS UART pins (GP8 TX, GP9 RX) */
+	uart1_default: uart1_default {
+		group1 {
+			pinmux = <UART1_TX_P8>;    /* GP8 -> GNSS.TXD */
+		};
+		group2 {
+			pinmux = <UART1_RX_P9>;    /* GP9 -> GNSS.RXD */
+			input-enable;
+		};
+	};
+
+	/* I2C pins for sensors (GP16 SDA, GP17 SCL) */
+	i2c0_default: i2c0_default {
+		group1 {
+			pinmux = <I2C0_SDA_P16>, <I2C0_SCL_P17>;
+			input-enable;
+			input-schmitt-enable;
+		};
+	};
+
+	/* SPI pins */
+	spi0_default: spi0_default {
+		group1 {
+			pinmux = <SPI0_CSN_P21>, <SPI0_SCK_P18>, <SPI0_TX_P19>;
+		};
+		group2 {
+			pinmux = <SPI0_RX_P20>;
+			input-enable;
+		};
+	};
+};

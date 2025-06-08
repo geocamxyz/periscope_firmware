@@ -1,0 +1,18 @@
+identifier: gc_periscope
+name: GeoCam Periscope
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+ram: 264
+flash: 2048
+supported:
+  - gpio
+  - uart
+  - spi
+  - i2c
+  - counter
+  - pwm
+  - adc
+  - watchdog

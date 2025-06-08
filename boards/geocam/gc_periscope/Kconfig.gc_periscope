@@ -1,0 +1,3 @@
+config BOARD_GC_PERISCOPE
+    bool "geocam_periscope"
+    select SOC_RP2040

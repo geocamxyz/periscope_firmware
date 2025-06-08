@@ -1,0 +1,6 @@
+board:
+  name: gc_periscope
+  vendor: geocam
+  full_name: GeoCam Periscope
+  socs:
+    - name: rp2040

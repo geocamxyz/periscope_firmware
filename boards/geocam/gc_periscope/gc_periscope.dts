@@ -1,0 +1,252 @@
+/dts-v1/;
+#include <raspberrypi/rpi_pico/rp2040.dtsi>
+#include "gc_periscope-pinctrl.dtsi"
+
+/ {
+	model = "GeoCam Periscope";
+	compatible = "geocam,gc_periscope";
+
+	chosen {
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+		zephyr,console = &cdc_acm_uart0;
+		zephyr,shell-uart = &uart0;
+		zephyr,code-partition = &code_partition;
+	};
+
+	aliases {
+		/* UART aliases */
+		motor-uart = &uart0;            /* Motor Driver on GP0/GP1 */
+		gnss-uart = &uart1;             /* GNSS on GP8/GP9 */
+		console-uart = &uart0;          /* Can share with motor */
+
+		/* I2C alias */
+		sensor-i2c = &i2c0;             /* Sensors on GP16/GP17 */
+
+		/* SPI alias for RTD temperature sensor */
+		rtd-spi = &spi0;
+	};
+
+
+	/* GPIO configuration for motor driver */
+	motor_control {
+		compatible = "gpio-leds";
+
+		motor_step: motor_step {
+			gpios = <&gpio0 6 GPIO_ACTIVE_HIGH>;    /* STEP */
+			label = "Motor Step";
+		};
+
+		motor_dir: motor_dir {
+			gpios = <&gpio0 7 GPIO_ACTIVE_HIGH>;     /* DIR */
+			label = "Motor Direction";
+		};
+
+		motor_enable: motor_enable {
+			gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;      /* Enable (active low) */
+			label = "Motor Enable";
+		};
+
+		motor_spread: motor_spread {
+			gpios = <&gpio0 9 GPIO_ACTIVE_HIGH>;     /* SPREAD */
+			label = "Motor Spread";
+		};
+	};
+
+	motor_inputs {
+		compatible = "gpio-keys";
+
+		motor_index: motor_index {
+			gpios = <&gpio0 10 GPIO_ACTIVE_HIGH>;    /* INDEX */
+			label = "Motor Index";
+		};
+
+		motor_diagnostic: motor_diagnostic {
+			gpios = <&gpio0 11 GPIO_ACTIVE_HIGH>;    /* DIAGNOSTIC */
+			label = "Motor Diagnostic";
+		};
+	};
+
+	/* Camera/sensor controls */
+	camera_control {
+		compatible = "gpio-leds";
+
+		cam_power: cam_power {
+			gpios = <&gpio0 12 GPIO_ACTIVE_HIGH>;    /* CAM_PWR */
+			label = "Camera Power";
+		};
+
+		cam_trigger: cam_trigger {
+			gpios = <&gpio0 13 GPIO_ACTIVE_HIGH>;    /* CAM_TRIGGER */
+			label = "Camera Trigger";
+		};
+	};
+
+	gnss_control {
+		compatible = "gpio-leds";
+
+		gnss_reset: gnss_reset {
+			gpios = <&gpio0 10 GPIO_ACTIVE_LOW>;     /* GNSS_RST */
+			label = "GNSS Reset";
+		};
+	};
+
+	gnss_inputs {
+		compatible = "gpio-keys";
+
+		gnss_pps: gnss_pps {
+			gpios = <&gpio0 11 GPIO_ACTIVE_HIGH>;    /* GNSS_PPS */
+			label = "GNSS PPS";
+		};
+	};
+
+	/* RTD temperature sensor controls */
+	rtd_control {
+		compatible = "gpio-leds";
+
+		rtd_cs: rtd_cs {
+			gpios = <&gpio0 21 GPIO_ACTIVE_LOW>;     /* RTD_CS (GP35) */
+			label = "RTD Chip Select";
+		};
+
+		rtd_drdy: rtd_drdy {
+			gpios = <&gpio0 22 GPIO_ACTIVE_LOW>;     /* RTD_DRDY (GP36) */
+			label = "RTD Data Ready";
+		};
+	};
+};
+
+&clk_sys {
+	clock-frequency = <125000000>;  /* 125 MHz */
+};
+
+/* Flash partitioning */
+&flash0 {
+	reg = <0x10000000 0x200000>;  /* 2MB flash at 0x10000000 */
+
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		boot_partition: partition@0 {
+			label = "mcuboot";
+			reg = <0x00000000 0x00010000>;
+			read-only;
+		};
+
+		code_partition: partition@10000 {
+			label = "code";
+			reg = <0x00010000 0x000f0000>;
+		};
+	};
+};
+
+/* Motor Driver UART (GP0 TX, GP1 RX) */
+&uart0 {
+	status = "okay";
+	current-speed = <115200>;           /* Adjust for Trinamic requirements */
+	pinctrl-0 = <&uart0_default>;
+	pinctrl-names = "default";
+	label = "MOTOR_UART";
+};
+
+/* GNSS UART (GP8 TX, GP19 RX) */
+&uart1 {
+	status = "okay";
+	current-speed = <9600>;             /* Typical GNSS baud rate */
+	pinctrl-0 = <&uart1_default>;
+	pinctrl-names = "default";
+	label = "GNSS_UART";
+};
+
+/* I2C for sensors (GP17 SDA, GP16 SCL) */
+&i2c0 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_FAST>;
+	pinctrl-0 = <&i2c0_default>;
+	pinctrl-names = "default";
+	label = "SENSOR_I2C";
+
+	imu: imu@28 {
+		compatible = "bosch,bno055";
+		reg = <0x28>;
+		label = "IMU";
+	};
+
+	env: env@76 {
+		compatible = "bosch,bme280";
+		reg = <0x76>;
+		label = "Environmental Sensor";
+	};
+};
+
+/* SPI for RTD temperature sensor (GP18 SCLK, GP19 SDI, GP20 SDO) */
+&spi0 {
+	status = "okay";
+	clock-frequency = <1000000>;        /* 1 MHz for RTD */
+	pinctrl-0 = <&spi0_default>;
+	pinctrl-names = "default";
+	label = "RTD_SPI";
+
+	/* RTD temperature sensor device */
+	rtd_sensor: rtd@0 {
+		compatible = "maxim,max31865";   /* Example RTD-to-digital converter */
+		reg = <0>;                      /* CS index */
+		spi-max-frequency = <1000000>;
+		label = "RTD_TEMP_SENSOR";
+
+		/* Required properties for MAX31865 */
+		resistance-at-zero = <100>;     /* 100Ω for PT100, 1000 for PT1000 */
+		resistance-reference = <430>;   /* Reference resistor value in Ω */
+		filter-50hz;                   /* Use 50Hz filter (remove for 60Hz) */
+	};
+};
+
+/* ADC for analog sensors */
+&adc {
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	channel@0 {
+		reg = <0>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <12>;
+	};
+
+	channel@1 {
+		reg = <1>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <12>;
+	};
+
+	channel@2 {
+		reg = <2>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,resolution = <12>;
+	};
+};
+
+&gpio0 {
+	status = "okay";
+};
+
+&timer {
+	status = "okay";
+//	counter-mode = "external-clock";
+};
+
+
+zephyr_udc0: &usbd {
+	status = "okay";
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+	};
+};
