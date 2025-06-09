@@ -3,7 +3,7 @@
 #include "motor_control.h"
 #include "camera_control.h"
 #include "gnss.h"
-#include "message_queue.h"
+#include "messaging.h"
 
 int main(void)
 {

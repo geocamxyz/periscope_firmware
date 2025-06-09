@@ -1,6 +1,6 @@
 #include <zephyr/drivers/spi.h>
 #include "camera_control.h"
-#include "message_queue.h"
+#include "messaging.h"
 
 #define CAMERA_THREAD_STACK_SIZE 1024
 #define CAMERA_THREAD_PRIORITY 7
@@ -8,7 +8,11 @@
 K_THREAD_STACK_DEFINE(camera_thread_stack, CAMERA_THREAD_STACK_SIZE);
 static struct k_thread camera_thread_data;
 
-static void camera_thread_entry(void *, void *, void *);
+K_TIMER_DEFINE(exposure_timer, NULL, NULL);
+
+void camera_init_hardware(void) {
+
+}
 
 void camera_control_start(void) {
     // Initialize camera hardware
@@ -20,20 +24,29 @@ void camera_control_start(void) {
                     CAMERA_THREAD_PRIORITY, 0, K_NO_WAIT);
 }
 
-static void camera_thread_entry(void *p1, void *p2, void *p3) {
-    app_message_t msg;
+int32_t exposure_time_ms = 100;
 
+void camera_trigger(void) {
+    k_timer_start(&exposure_timer, K_MSEC(exposure_time_ms), K_NO_WAIT);
+}
+
+void camera_thread_entry(void *p1, void *p2, void *p3) {
     while (1) {
-        // Wait for motor completion signal
-        if (k_msgq_get(&motor_to_camera_queue, &msg, K_FOREVER) == 0) {
-            if (msg.type == MSG_MOTOR_COMPLETE) {
-                // Take photo
-                capture_image();
+        k_event_wait(&system_events, EVENT_START_CAPTURE, false, K_FOREVER);
+        atomic_inc(&threads_running);
 
-                // Notify USB thread we're done
-                msg.type = MSG_CAMERA_COMPLETE;
-                k_msgq_put(&camera_to_usb_queue, &msg, K_NO_WAIT);
-            }
+        while (atomic_get(&system_capturing)) {
+            k_event_wait(&system_events, EVENT_POSITIONED, false, K_FOREVER);
+
+            camera_trigger();
+
+            // wait for exposure to finish
+            k_timer_status_sync(&exposure_timer);
+            k_event_post(&system_events, EVENT_EXPOSURE_COMPLETE);
         }
+
+        k_timer_stop(&exposure_timer);
+        atomic_dec(&threads_running);
+        k_event_post(&system_events, EVENT_THREAD_STOPPED);
     }
 }
