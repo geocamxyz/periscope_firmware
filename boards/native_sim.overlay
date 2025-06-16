@@ -1,0 +1,166 @@
+/*
+ * native_sim overlay for GeoCam Periscope simulation
+ * This provides GPIO emulation and multiple UARTs via host interfaces
+ */
+
+/ {
+	aliases {
+		/* Multiple UART support via host pseudo-terminals */
+		motor-uart = &uart_motor;       /* Motor Driver - /dev/pts/1 */
+		gnss-uart = &uart_gnss;        /* GNSS - /dev/pts/2 */
+		console-uart = &uart_console;     /* Console/debug - /dev/pts/3 */
+
+		/* I2C emulation for sensors */
+		sensor-i2c = &i2c0;
+	};
+
+	/* Simulate motor control GPIOs as LEDs (outputs you can monitor) */
+	motor_control {
+		compatible = "gpio-leds";
+
+		motor_step: motor_step {
+			gpios = <&gpio0 0 GPIO_ACTIVE_HIGH>;
+			label = "Motor Step (simulated)";
+		};
+
+		motor_dir: motor_dir {
+			gpios = <&gpio0 1 GPIO_ACTIVE_HIGH>;
+			label = "Motor Direction (simulated)";
+		};
+
+		motor_enable: motor_enable {
+			gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
+			label = "Motor Enable (simulated)";
+		};
+
+		motor_spread: motor_spread {
+			gpios = <&gpio0 3 GPIO_ACTIVE_HIGH>;
+			label = "Motor Spread (simulated)";
+		};
+	};
+
+	/* Simulate motor feedback inputs as buttons (inputs you can trigger) */
+	motor_inputs {
+		compatible = "gpio-keys";
+
+		motor_index: motor_index {
+			gpios = <&gpio0 4 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+			label = "Motor Index (simulated)";
+		};
+
+		motor_diagnostic: motor_diagnostic {
+			gpios = <&gpio0 5 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+			label = "Motor Diagnostic (simulated)";
+		};
+	};
+
+	/* Camera control GPIOs */
+	camera_control {
+		compatible = "gpio-leds";
+
+		cam_power: cam_power {
+			gpios = <&gpio0 6 GPIO_ACTIVE_HIGH>;
+			label = "Camera Power (simulated)";
+		};
+
+		cam_trigger: cam_trigger {
+			gpios = <&gpio0 7 GPIO_ACTIVE_HIGH>;
+			label = "Camera Trigger (simulated)";
+		};
+	};
+
+	/* GNSS control and inputs */
+	gnss_control {
+		compatible = "gpio-leds";
+
+		gnss_reset: gnss_reset {
+			gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;
+			label = "GNSS Reset (simulated)";
+		};
+	};
+
+	gnss_inputs {
+		compatible = "gpio-keys";
+
+		gnss_pps: gnss_pps {
+			gpios = <&gpio0 9 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>;
+			label = "GNSS PPS (simulated)";
+		};
+	};
+
+	/* Chosen node for console */
+	chosen {
+		zephyr,console = &uart_console;    /* Separate console UART */
+		zephyr,shell-uart = &uart_console;
+	};
+
+	uart_motor: uart@100 {
+		compatible = "zephyr,native-pty-uart";
+		reg = <0x100 0x100>;
+		status = "okay";
+		current-speed = <115200>;
+		label = "MOTOR_UART";
+	};
+
+	uart_gnss: uart@200 {
+		compatible = "zephyr,native-pty-uart";
+		reg = <0x200 0x100>;
+		status = "okay";
+		current-speed = <9600>;
+		label = "GNSS_UART";
+	};
+
+	uart_console: uart@300 {
+		compatible = "zephyr,native-pty-uart";
+		reg = <0x300 0x100>;
+		status = "okay";
+		current-speed = <115200>;
+		label = "CONSOLE_UART";
+	};
+};
+
+/* Configure multiple UARTs - native_sim supports multiple instances */
+//&uart0 {
+//	status = "okay";
+//	current-speed = <115200>;
+//	label = "MOTOR_UART";
+//};
+//
+//&uart1 {
+//	status = "okay";
+//	current-speed = <9600>;
+//	label = "GNSS_UART";
+//};
+//
+//&uart2 {
+//	status = "okay";
+//	current-speed = <115200>;
+//	label = "CONSOLE_UART";
+//};
+
+/* Configure I2C for sensor emulation */
+&i2c0 {
+	status = "okay";
+	clock-frequency = <400000>; /* 400 kHz */
+	label = "SENSOR_I2C";
+
+	/* Simulate your IMU */
+	imu: imu@28 {
+		compatible = "zephyr,i2c-emul-bme280"; /* Emulated BME280 */
+		reg = <0x28>;
+		label = "IMU_EMU";
+	};
+
+	/* Simulate your environmental sensor */
+	env: env@76 {
+		compatible = "zephyr,i2c-emul-bme280"; /* Emulated BME280 */
+		reg = <0x76>;
+		label = "ENV_EMU";
+	};
+};
+
+/* Enable GPIO emulation */
+&gpio0 {
+	status = "okay";
+	ngpios = <32>;  /* Number of GPIO pins to emulate */
+};

@@ -8,11 +8,16 @@ toolchain:
 ram: 264
 flash: 2048
 supported:
-  - gpio
   - uart
-  - spi
-  - i2c
-  - counter
-  - pwm
+  - gpio
   - adc
+  - i2c
+  - spi
+  - hwinfo
   - watchdog
+  - pwm
+  - flash
+  - dma
+  - counter
+  - clock
+  - usbd

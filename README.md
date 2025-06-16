@@ -24,3 +24,15 @@ graph TD
 ```
 
 I am using Zephyr events to tell when to go between these states - and for each thread to know when to do what.
+
+
+## Dependencies
+Your west workspace has to have this added (just the bit after projects).
+```yaml
+manifest:
+  projects:
+    - name: zephyr-trinamic
+      url: https://github.com/cooked/zephyr-trinamic
+      revision: master
+      path: modules/trinamic
+```

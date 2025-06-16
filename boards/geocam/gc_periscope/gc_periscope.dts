@@ -9,6 +9,7 @@
 	chosen {
 		zephyr,sram = &sram0;
 		zephyr,flash = &flash0;
+		zephyr,flash-controller = &ssi;
 		zephyr,console = &cdc_acm_uart0;
 		zephyr,shell-uart = &uart0;
 		zephyr,code-partition = &code_partition;
@@ -33,22 +34,22 @@
 		compatible = "gpio-leds";
 
 		motor_step: motor_step {
-			gpios = <&gpio0 6 GPIO_ACTIVE_HIGH>;    /* STEP */
+			gpios = <&gpio0 2 GPIO_ACTIVE_HIGH>;    /* STEP */
 			label = "Motor Step";
 		};
 
 		motor_dir: motor_dir {
-			gpios = <&gpio0 7 GPIO_ACTIVE_HIGH>;     /* DIR */
+			gpios = <&gpio0 5 GPIO_ACTIVE_HIGH>;     /* DIR */
 			label = "Motor Direction";
 		};
 
 		motor_enable: motor_enable {
-			gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;      /* Enable (active low) */
+			gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;      /* Enable (active low) */
 			label = "Motor Enable";
 		};
 
 		motor_spread: motor_spread {
-			gpios = <&gpio0 9 GPIO_ACTIVE_HIGH>;     /* SPREAD */
+			gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>;     /* SPREAD */
 			label = "Motor Spread";
 		};
 	};
@@ -57,12 +58,12 @@
 		compatible = "gpio-keys";
 
 		motor_index: motor_index {
-			gpios = <&gpio0 10 GPIO_ACTIVE_HIGH>;    /* INDEX */
+			gpios = <&gpio0 5 GPIO_ACTIVE_HIGH>;    /* INDEX */
 			label = "Motor Index";
 		};
 
 		motor_diagnostic: motor_diagnostic {
-			gpios = <&gpio0 11 GPIO_ACTIVE_HIGH>;    /* DIAGNOSTIC */
+			gpios = <&gpio0 6 GPIO_ACTIVE_HIGH>;    /* DIAGNOSTIC */
 			label = "Motor Diagnostic";
 		};
 	};
@@ -120,24 +121,29 @@
 	clock-frequency = <125000000>;  /* 125 MHz */
 };
 
-/* Flash partitioning */
 &flash0 {
-	reg = <0x10000000 0x200000>;  /* 2MB flash at 0x10000000 */
+	reg = <0x10000000 DT_SIZE_M(2)>;
 
 	partitions {
 		compatible = "fixed-partitions";
 		#address-cells = <1>;
 		#size-cells = <1>;
 
-		boot_partition: partition@0 {
-			label = "mcuboot";
-			reg = <0x00000000 0x00010000>;
+		/* Reserved memory for the second stage bootloader */
+		second_stage_bootloader: partition@0 {
+			label = "second_stage_bootloader";
+			reg = <0x00000000 0x100>;
 			read-only;
 		};
 
-		code_partition: partition@10000 {
-			label = "code";
-			reg = <0x00010000 0x000f0000>;
+		/*
+		 * Usable flash. Starts at 0x100, after the bootloader. The partition
+		 * size is 2MB minus the 0x100 bytes taken by the bootloader.
+		 */
+		code_partition: partition@100 {
+			label = "code-partition";
+			reg = <0x100 (DT_SIZE_M(2) - 0x100)>;
+			read-only;
 		};
 	};
 };
@@ -145,7 +151,7 @@
 /* Motor Driver UART (GP0 TX, GP1 RX) */
 &uart0 {
 	status = "okay";
-	current-speed = <115200>;           /* Adjust for Trinamic requirements */
+	current-speed = <500000>;           /* Adjust for Trinamic requirements */
 	pinctrl-0 = <&uart0_default>;
 	pinctrl-names = "default";
 	label = "MOTOR_UART";

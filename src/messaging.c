@@ -3,13 +3,13 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
-LOG_MODULE_REGISTER(msg_queue, LOG_LEVEL_INF);
+LOG_MODULE_DECLARE(gc_periscope, LOG_LEVEL_DBG);
 
 K_EVENT_DEFINE(system_events);
 K_MSGQ_DEFINE(usb_queue, sizeof(usb_msg_t), MSG_QUEUE_SIZE, MSG_QUEUE_ALIGN);
 
-static atomic_t system_capturing = ATOMIC_INIT(0);
-static atomic_t threads_running = ATOMIC_INIT(0);
+atomic_t system_capturing = ATOMIC_INIT(0);
+atomic_t threads_running = ATOMIC_INIT(0);
 
 void message_queue_init(void)
 {
@@ -31,11 +31,11 @@ void msg_queue_purge_all(void)
 void start_capture(void)
 {
     if (atomic_get(&system_capturing)) {
-        printk("Already capturing\n");
+        LOG_INF("Already capturing\n");
         return;
     }
 
-    printk("Starting capture...\n");
+    LOG_INF("Starting capture...");
     atomic_set(&system_capturing, 1);
     k_event_post(&system_events, EVENT_START_CAPTURE);
 }
@@ -43,11 +43,11 @@ void start_capture(void)
 void stop_capture(void)
 {
     if (!atomic_get(&system_capturing)) {
-        printk("Not currently capturing\n");
+        LOG_INF("Not currently capturing");
         return;
     }
 
-    printk("Stopping capture...\n");
+    LOG_INF("Stopping capture...");
 
     // Get current thread count
     int expected_stops = atomic_get(&threads_running);
@@ -63,5 +63,5 @@ void stop_capture(void)
     // Clear events for next time
     k_event_clear(&system_events, EVENT_START_CAPTURE | EVENT_THREAD_STOPPED);
 
-    printk("All threads stopped\n");
+    LOG_INF("All threads stopped\n");
 }

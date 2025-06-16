@@ -1,6 +1,9 @@
 #include <zephyr/device.h>
+#include <zephyr/logging/log.h>
 #include "gnss.h"
 #include "messaging.h"
+
+LOG_MODULE_DECLARE(gc_periscope, LOG_LEVEL_DBG);
 
 const struct gpio_dt_spec gnss_pps_pin = GPIO_DT_SPEC_GET(DT_NODELABEL(gnss_pps), gpios);
 volatile uint64_t last_pps_timestamp = 0;

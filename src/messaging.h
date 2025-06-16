@@ -18,8 +18,8 @@
 #define EVENT_EXPOSURE_COMPLETE BIT(6)
 
 extern struct k_event system_events;
-static atomic_t system_capturing;
-static atomic_t threads_running;
+extern atomic_t system_capturing;
+extern atomic_t threads_running;
 
 // Message queue definitions
 #define MSG_QUEUE_SIZE 10
