@@ -54,6 +54,7 @@ void stop_capture(void)
 
     // Signal stop
     atomic_set(&system_capturing, 0);
+    k_event_post(&system_events, EVENT_STOP_CAPTURE);
 
     // Wait for all threads to stop
     for (int i = 0; i < expected_stops; i++) {

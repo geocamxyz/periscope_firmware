@@ -20,7 +20,6 @@ const static uint8_t MRES_001 = 0b1000;
 
 // Declare as extern - definitions will be in motor_control.c
 extern const struct gpio_dt_spec motor_index;
-extern struct gpio_callback step_cb_data;
 extern const struct device *const motor_uart;
 extern struct k_thread motor_thread_data;
 

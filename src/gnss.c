@@ -1,4 +1,5 @@
 #include <zephyr/device.h>
+#include <zephyr/drivers/gnss.h>
 #include <zephyr/logging/log.h>
 #include "gnss.h"
 #include "messaging.h"
@@ -8,7 +9,7 @@ LOG_MODULE_DECLARE(gc_periscope, LOG_LEVEL_DBG);
 const struct gpio_dt_spec gnss_pps_pin = GPIO_DT_SPEC_GET(DT_NODELABEL(gnss_pps), gpios);
 volatile uint64_t last_pps_timestamp = 0;
 struct gpio_callback pps_cb_data;
-const struct device *const gnss_uart = DEVICE_DT_GET(GNSS_UART_NODE);
+const struct device *const gnss_uart = DEVICE_DT_GET(DT_NODELABEL(gnss));
 K_THREAD_STACK_DEFINE(gnss_thread_stack, GNSS_THREAD_STACK_SIZE);
 struct k_thread gnss_thread_data;
 
@@ -53,5 +54,8 @@ void gnss_start(void) {
 void gnss_thread_entry(void *p1, void *p2, void *p3) {
     while (1) {
         k_sleep(K_MSEC(1000));
+        uint32_t fix_rate = 0;
+        gnss_get_fix_rate(gnss_uart, &fix_rate);
+        LOG_INF("GNSS fix rate is %d", fix_rate);
     }
 }

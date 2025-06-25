@@ -15,7 +15,7 @@ int main(void)
     const struct device *const dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
     uint32_t dtr = 0;
     int timeout_count = 0;
-    const int max_timeout = 50; // 5 seconds timeout
+    const int max_timeout = 5; // 0.5 second timeout
 
     if (usb_enable(NULL)) {
         printk("Failed to enable USB");
@@ -23,7 +23,7 @@ int main(void)
     }
 
     printk("Waiting for USB to stabilize...\n");
-    k_sleep(K_MSEC(500)); // 2 second delay
+    k_sleep(K_MSEC(500));
 
     /* Poll DTR with timeout */
     while (!dtr && timeout_count < max_timeout) {

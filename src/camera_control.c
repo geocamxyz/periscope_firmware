@@ -37,7 +37,7 @@ void camera_control_start(void) {
                     CAMERA_THREAD_PRIORITY, 0, K_NO_WAIT);
 }
 
-int32_t exposure_time_us = 10000;
+int32_t exposure_time_us = 500000;
 
 void camera_trigger(void) {
     const usb_msg_t msg = {

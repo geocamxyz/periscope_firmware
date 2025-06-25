@@ -115,6 +115,24 @@
 			label = "RTD Data Ready";
 		};
 	};
+
+	home_control {
+		compatible = "gpio-leds";
+
+		home_on: home_on {
+			gpios = <&gpio0 25 GPIO_ACTIVE_HIGH>;     /* RTD_CS (GP35) */
+			label = "Home LED on";
+		};
+	};
+
+	home_inputs {
+		compatible = "gpio-keys";
+
+		home_det: home_det {
+			gpios = <&gpio0 26 GPIO_ACTIVE_HIGH>;
+			label = "Home detected";
+		};
+	};
 };
 
 &clk_sys {
@@ -160,10 +178,15 @@
 /* GNSS UART (GP8 TX, GP19 RX) */
 &uart1 {
 	status = "okay";
-	current-speed = <9600>;             /* Typical GNSS baud rate */
+//	current-speed = <38400>;             /* Typical GNSS baud rate */
+	current-speed = <460800>;             /* Typical GNSS baud rate */
 	pinctrl-0 = <&uart1_default>;
 	pinctrl-names = "default";
 	label = "GNSS_UART";
+	gnss: u_blox_f9 {
+		compatible = "u-blox,f9p";
+		status = "okay";
+	};
 };
 
 /* I2C for sensors (GP17 SDA, GP16 SCL) */
@@ -217,22 +240,6 @@
 
 	channel@0 {
 		reg = <0>;
-		zephyr,gain = "ADC_GAIN_1";
-		zephyr,reference = "ADC_REF_INTERNAL";
-		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
-		zephyr,resolution = <12>;
-	};
-
-	channel@1 {
-		reg = <1>;
-		zephyr,gain = "ADC_GAIN_1";
-		zephyr,reference = "ADC_REF_INTERNAL";
-		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
-		zephyr,resolution = <12>;
-	};
-
-	channel@2 {
-		reg = <2>;
 		zephyr,gain = "ADC_GAIN_1";
 		zephyr,reference = "ADC_REF_INTERNAL";
 		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
