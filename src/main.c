@@ -4,6 +4,7 @@
 #include <zephyr/logging/log.h>
 #include "usb_comm.h"
 #include "motor_control.h"
+#include "stepper.h"
 #include "camera_control.h"
 #include "gnss.h"
 #include "messaging.h"
@@ -48,6 +49,7 @@ int main(void)
     gnss_start();
     motor_control_start();
     camera_control_start();
+    stepper_control_start();
 
     LOG_INF("Periscope firmware started\n");
     k_msleep(10);

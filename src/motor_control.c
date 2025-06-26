@@ -9,22 +9,45 @@
 #include "tmc2209.h"
 
 #define MICROSTEPS 8
+#define STEPS_PER_MOVE 200  // 200 full steps per discrete move
+#define MOVE_TIME_MS 250    // Time for each discrete move
 
 LOG_MODULE_REGISTER(motor_control, LOG_LEVEL_DBG);
 
-// Define the global variables here
-const struct gpio_dt_spec motor_index = GPIO_DT_SPEC_GET(DT_NODELABEL(motor_index), gpios);
+// S-curve motion profile
+struct scurve_profile {
+    uint32_t total_steps;      // Total steps to move
+    uint32_t accel_steps;      // Steps during acceleration
+    uint32_t decel_steps;      // Steps during deceleration
+    uint32_t const_steps;      // Steps at constant velocity
+
+    double max_velocity;       // Maximum velocity (steps/sec)
+    double acceleration;       // Acceleration (steps/sec²)
+    double jerk;              // Jerk (steps/sec³)
+
+    uint32_t step_count;      // Current step count
+    uint64_t start_time;      // Movement start time
+};
+
+// Define the global variables
 const struct gpio_dt_spec motor_diag = GPIO_DT_SPEC_GET(DT_NODELABEL(motor_diagnostic), gpios);
 const struct gpio_dt_spec motor_step = GPIO_DT_SPEC_GET(DT_NODELABEL(motor_step), gpios);
+const struct gpio_dt_spec motor_dir = GPIO_DT_SPEC_GET(DT_NODELABEL(motor_dir), gpios);
 const struct gpio_dt_spec motor_enable = GPIO_DT_SPEC_GET(DT_NODELABEL(motor_enable), gpios);
 const struct gpio_dt_spec home_enable = GPIO_DT_SPEC_GET(DT_NODELABEL(home_on), gpios);
 const struct gpio_dt_spec home_detect = GPIO_DT_SPEC_GET(DT_NODELABEL(home_det), gpios);
-volatile int32_t motor_step_counter = 0;
-volatile int32_t direction = 1; // positive
+
+volatile int32_t motor_position = 0;  // Current position in microsteps
 volatile bool home = false;
-static struct gpio_callback step_cb_data;
+volatile bool movement_active = false;
+
+// Callbacks and thread management
 static struct gpio_callback home_cb_data;
 static struct gpio_callback diag_cb_data;
+static struct k_timer step_timer;
+static struct scurve_profile profile;
+static int32_t move_direction = 1;
+
 const struct device *const motor_uart = DEVICE_DT_GET(MOTOR_UART_NODE);
 K_THREAD_STACK_DEFINE(motor_thread_stack, MOTOR_THREAD_STACK_SIZE);
 struct k_thread motor_thread_data;
@@ -46,35 +69,40 @@ uint32_t generate_chopconf(
     if (diss2g > 1) diss2g = 1;
     if (dedge > 1) dedge = 1;
     if (intpol > 1) intpol = 1;
-    if (mres > 15) mres = 15;        // 4-bit field
+    if (mres > 15) mres = 15;
     if (vsense > 1) vsense = 1;
-    if (tbl > 3) tbl = 3;            // 2-bit field
-    if (hend > 15) hend = 15;        // 4-bit field
-    if (hstrt > 7) hstrt = 7;        // 3-bit field
-    if (toff > 15) toff = 15;        // 4-bit field
+    if (tbl > 3) tbl = 3;
+    if (hend > 15) hend = 15;
+    if (hstrt > 7) hstrt = 7;
+    if (toff > 15) toff = 15;
 
     uint32_t result = 0;
 
-    // Set each bit field at its proper position
-    result |= ((uint32_t)(diss2vs & 0x01) << 31);  // Bit 31
-    result |= ((uint32_t)(diss2g & 0x01) << 30);   // Bit 30
-    result |= ((uint32_t)(dedge & 0x01) << 29);    // Bit 29
-    result |= ((uint32_t)(intpol & 0x01) << 28);   // Bit 28
-    result |= ((uint32_t)(mres & 0x0F) << 24);     // Bits 27-24
-    // Bits 23-18 are reserved (set to 0)
-    result |= ((uint32_t)(vsense & 0x01) << 17);   // Bit 17
-    result |= ((uint32_t)(tbl & 0x03) << 15);      // Bits 16-15
-    // Bit 14-12 are reserved (set to 0)
-    result |= ((uint32_t)(hend & 0x0F) << 7);      // Bits 11-7 (Note: 4 bits shifted to position 7)
-    result |= ((uint32_t)(hstrt & 0x07) << 4);     // Bits 6-4
-    result |= (toff & 0x0F);                       // Bits 3-0
+    result |= ((uint32_t)(diss2vs & 0x01) << 31);
+    result |= ((uint32_t)(diss2g & 0x01) << 30);
+    result |= ((uint32_t)(dedge & 0x01) << 29);
+    result |= ((uint32_t)(intpol & 0x01) << 28);
+    result |= ((uint32_t)(mres & 0x0F) << 24);
+    result |= ((uint32_t)(vsense & 0x01) << 17);
+    result |= ((uint32_t)(tbl & 0x03) << 15);
+    result |= ((uint32_t)(hend & 0x0F) << 7);
+    result |= ((uint32_t)(hstrt & 0x07) << 4);
+    result |= (toff & 0x0F);
 
     return result;
 }
 
+uint32_t ihold_irun(uint8_t ihold, uint8_t irun, uint8_t iholddelay) {
+    if (ihold > 31) ihold = 31;
+    if (irun > 31) irun = 31;
+    if (iholddelay > 15) iholddelay = 15;
 
-void step_interrupt_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
-    motor_step_counter += direction;
+    uint16_t result = 0;
+    result |= (ihold & 0x1F);
+    result |= ((irun & 0x1F) << 8);
+    result |= ((iholddelay & 0x0F) << 13);
+
+    return result;
 }
 
 void home_interrupt_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
@@ -83,185 +111,66 @@ void home_interrupt_handler(const struct device *dev, struct gpio_callback *cb, 
 }
 
 void diag_interrupt_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
-    LOG_INF("diag detected");
+    LOG_INF("Motor diagnostic triggered");
 }
 
 void check_motor_status() {
     uint32_t value;
 
-    // Check driver status
     if (tmc2209_read_register(motor_uart, 0, 0x6F, &value) == 0) {
         LOG_INF("DRV_STATUS: 0x%08X", value);
         if (value & (1 << 31)) LOG_WRN("Standstill detected");
         if (value & (1 << 29)) LOG_WRN("Motor load detected");
     }
 
-    // Check pin status
     if (tmc2209_read_register(motor_uart, 0, 0x06, &value) == 0) {
         LOG_INF("IOIN: 0x%08X", value);
     }
 
-    // Check global status
     if (tmc2209_read_register(motor_uart, 0, 0x01, &value) == 0) {
         LOG_INF("GSTAT: 0x%08X", value);
     }
 }
 
-
-uint32_t ihold_irun(uint8_t ihold, uint8_t irun, uint8_t iholddelay) {
-    // Validate input ranges
-    if (ihold > 31) ihold = 31;           // 5-bit max (0-31)
-    if (irun > 31) irun = 31;             // 5-bit max (0-31)
-    if (iholddelay > 15) iholddelay = 15; // 4-bit max (0-15)
-
-    // Combine the values according to bit positions:
-    // Bits 4..0:   IHOLD
-    // Bits 12..8:  IRUN
-    // Bits 19..16: IHOLDDELAY (but we only need 14 bits total)
-    uint16_t result = 0;
-    result |= (ihold & 0x1F);              // Bits 4..0
-    result |= ((irun & 0x1F) << 8);        // Bits 12..8
-    result |= ((iholddelay & 0x0F) << 13); // Bits 16..13 (shifted to fit 14-bit)
-
-    return result;
-}
-
-void set_velocity(int32_t velocity) {
-    // LOG_INF("VEL: %d", velocity);
-    tmc2209_write_register(motor_uart, 0x00, 0x22, velocity);
-}
-
 void configure_motor() {
     /*
-     * generate internal voltage for VREF (max current)
-     * external sense resisors
-     * spreadcycle PWM (swappable with SPREAD pin)
-     * not inverted motor direction
-     * index shows first microstep position (ignored)
-     * index output is step pulses from internal generator
-     * pdn uart input function disabled
-     * microstep resolution by MRES register
-     * multistep filtering
-     * normal operation
+     * Configure TMC2209 for step/dir interface:
+     * - External step/dir control
+     * - Internal voltage reference
+     * - Microstepping enabled
      */
-    tmc2209_write_register(motor_uart, 0x00, 0x00, 0b0111100000);
-    // set ihold and irun
-    tmc2209_write_register(motor_uart, 0x00, 0x10, ihold_irun(31, 31,8));
+    tmc2209_write_register(motor_uart, 0x00, 0x00, 0b0000100000); // Enable step/dir mode
+
+    // Set current levels
+    // tmc2209_write_register(motor_uart, 0x00, 0x10, ihold_irun(31, 31, 8));
+
+    // Configure chopper
     tmc2209_write_register(motor_uart, 0x00, 0x6C, generate_chopconf(
         0,    // diss2vs: Short protection enabled
         0,    // diss2g: Short to GND protection enabled
         0,    // dedge: Normal step pulses
-        1,    // intpol: Enable interpolation (default)
+        1,    // intpol: Enable interpolation
         MRES_016, // microstep resolution
         0,    // vsense: Low sensitivity
         1,    // tbl: 24 clocks blank time
-        12,    // hend: Hysteresis offset 0
-        8,    // hstrt: Add 8 to hysteresis - motor wants more but that's all that can be done
-        3     // toff: Off time 3 (default for StealthChop)
+        12,   // hend: Hysteresis offset
+        8,    // hstrt: Hysteresis start
+        3     // toff: Off time
     ));
-    // don't power down - always have max hold current
-    tmc2209_write_register(motor_uart, 0x00, 0x11, 0);
-    // set stallguard threshold
-    tmc2209_write_register(motor_uart, 0x00, 0x40 , 40);
+
+    // Power management
+    tmc2209_write_register(motor_uart, 0x00, 0x11, 0); // No power down
+
+    // Stallguard threshold
+    tmc2209_write_register(motor_uart, 0x00, 0x40, 40);
 
     k_msleep(1);
 }
 
-void go_to_position(int32_t target_steps) {
-    int32_t steps_to_go = target_steps - motor_step_counter;
-
-    if (steps_to_go == 0) {
-        set_velocity(0);
-        return;
-    }
-
-    // Direction: positive velocity for forward, negative for reverse
-    direction = (steps_to_go > 0) ? 1 : -1;
-
-    // Ramp parameters
-    const int32_t target_max_velocity = 5000;                 // 20k seems to work at 12V
-    const int32_t target_accel_steps = 90 * MICROSTEPS;       // Steps to reach max velocity
-    const int32_t target_decel_steps = 80 * MICROSTEPS;       // Steps to go from max to min
-    const int32_t start_velocity = 800;                    // Minimum velocity to maintain motion
-    const int32_t stop_velocity = 600;                    // Minimum velocity to maintain motion
-    const int32_t control_period_ms = 1;               // Control loop period
-
-    int32_t total_steps = abs(target_steps - motor_step_counter);
-    bool short_move = (total_steps < target_accel_steps + target_decel_steps);
-
-    int32_t accel_steps = short_move ?
-        (total_steps * target_accel_steps) / (target_accel_steps + target_decel_steps) : target_accel_steps;
-    int32_t decel_steps = short_move ?
-        total_steps - accel_steps : target_decel_steps;
-    int32_t max_velocity = short_move ?
-        start_velocity + ((target_max_velocity - start_velocity) * accel_steps) / accel_steps :
-        target_max_velocity;
-
-    if (short_move) {
-        LOG_DBG("Short move - total steps is %d", total_steps);
-        LOG_DBG("Changed accel from %d to %d, and decel from %d to %d", target_accel_steps, accel_steps, target_decel_steps, decel_steps);
-    }
-
-    int32_t prev_remaining_steps = abs(target_steps - motor_step_counter);
-
-    while (abs(motor_step_counter - target_steps) > 1) {
-        int32_t remaining_steps = abs(target_steps - motor_step_counter);
-        if (remaining_steps > prev_remaining_steps) {
-            LOG_DBG("went past target by %d usteps", remaining_steps);
-            break; // stop immediately
-        }
-
-        int32_t velocity;
-
-        // Acceleration phase
-        if (abs(motor_step_counter - (target_steps - steps_to_go)) < accel_steps) {
-            velocity = start_velocity +
-                      ((max_velocity - start_velocity) *
-                       abs(motor_step_counter - (target_steps - steps_to_go))) / accel_steps;
-        }
-        // Deceleration phase - calculate velocity for one control loop ahead
-        else if (remaining_steps < decel_steps) {
-            // Estimate current velocity from position
-            int32_t current_velocity = stop_velocity +
-                      ((max_velocity - stop_velocity) * remaining_steps) / decel_steps;
-
-            // Estimate steps that will be traveled in next control period
-            // 1399 is 1000 (ms) * (1 / 0.715) which is the velocity scaler
-            int32_t predicted_steps_traveled = (current_velocity * control_period_ms) / 1399;
-
-            // Calculate remaining steps after next control period
-            int32_t predicted_remaining = remaining_steps - predicted_steps_traveled;
-            if (predicted_remaining < 0) predicted_remaining = 0;
-
-            // Set velocity based on predicted future position
-            velocity = stop_velocity +
-                      ((max_velocity - stop_velocity) * predicted_remaining) / decel_steps;
-        }
-        // Constant velocity phase
-        else {
-            velocity = max_velocity;
-        }
-
-        // uint32_t stallguard = 0;
-        // tmc2209_read_register(motor_uart, 0x00, 0x41, &stallguard);
-        // LOG_INF("Stallguard result is %d", stallguard);
-
-        set_velocity(velocity * direction * MICROSTEPS);
-        k_msleep(control_period_ms);  // Small delay for control loop
-        prev_remaining_steps = remaining_steps;
-        // check_motor_status();
-    }
-
-    set_velocity(0);  // Stop at target
-}
-
-
-
 void motor_init_hardware(void) {
-    gpio_pin_configure_dt(&motor_index, GPIO_INPUT);
-    gpio_pin_interrupt_configure_dt(&motor_index, GPIO_INT_EDGE_RISING);
-    gpio_init_callback(&step_cb_data, step_interrupt_handler, BIT(motor_index.pin));
-    gpio_add_callback(motor_index.port, &step_cb_data);
+    // Configure GPIO pins
+    gpio_pin_configure_dt(&motor_dir, GPIO_OUTPUT);
+    gpio_pin_configure_dt(&motor_enable, GPIO_OUTPUT);
 
     gpio_pin_configure_dt(&home_detect, GPIO_INPUT);
     gpio_pin_interrupt_configure_dt(&home_detect, GPIO_INT_EDGE_RISING);
@@ -273,15 +182,15 @@ void motor_init_hardware(void) {
     gpio_init_callback(&diag_cb_data, diag_interrupt_handler, BIT(motor_diag.pin));
     gpio_add_callback(motor_diag.port, &diag_cb_data);
 
-    gpio_pin_configure_dt(&motor_step, GPIO_OUTPUT);
-    gpio_pin_configure_dt(&motor_enable, GPIO_OUTPUT);
+    // Set initial pin states
+    gpio_pin_set_dt(&motor_dir, 0);
 }
 
 void motor_control_start(void) {
     tmc2209_init_uart(motor_uart);
     motor_init_hardware();
 
-    gpio_pin_set_dt(&motor_enable, 0);
+    gpio_pin_set_dt(&motor_enable, 0); // Initially disabled
 
     k_thread_create(&motor_thread_data, motor_thread_stack,
                     K_THREAD_STACK_SIZEOF(motor_thread_stack),
@@ -290,32 +199,41 @@ void motor_control_start(void) {
 }
 
 void motor_thread_entry(void *p1, void *p2, void *p3) {
-    int32_t target_position = 0;
-    int32_t delta = 200;
-    int32_t dir = 1;
+    int32_t current_step = 0;
+    int32_t direction = 1;
+    const int32_t max_steps = 3; // Move 3 discrete steps in each direction
 
     while (1) {
         k_event_wait(&system_events, EVENT_START_CAPTURE, true, K_FOREVER);
         atomic_inc(&threads_running);
-        gpio_pin_set_dt(&motor_enable, 1);
+        gpio_pin_set_dt(&motor_enable, 1); // Enable motor
         configure_motor();
 
         while (atomic_get(&system_capturing)) {
             k_event_clear(&system_events, EVENT_EXPOSURE_COMPLETE);
 
-            if (target_position >= delta * 3) {
-                dir = -1;
-            } else if (target_position <= 0) {
-                dir = 1;
+            // Determine next position
+            if (current_step >= max_steps) {
+                direction = -1;
+            } else if (current_step <= 0) {
+                direction = 1;
             }
-            LOG_INF("Moving motor to %d", target_position);
+
+            LOG_INF("Moving motor discrete step %d (direction %d)", current_step, direction);
+
 #ifndef CONFIG_BOARD_NATIVE_SIM
             uint64_t move_start = k_cycle_get_64();
-            go_to_position(target_position * MICROSTEPS);
+
+            // Move one discrete step
+            // move_discrete_step(direction);
+            k_event_post(&system_events, EVENT_TRIGGER_STEPS);
+            k_event_wait(&system_events, EVENT_STEPS_COMPLETE, true, K_FOREVER);
+            // wait_for_movement_complete();
+
             uint64_t move_end = k_cycle_get_64();
-            LOG_INF("Took %d us to move motor", (int32_t) k_cyc_to_us_floor64(move_end - move_start));
+            LOG_INF("Discrete move took %d us", (int32_t)k_cyc_to_us_floor64(move_end - move_start));
 #endif
-            target_position += dir * delta;
+            current_step += direction;
 
             if (!atomic_get(&system_capturing)) {
                 break;
@@ -325,7 +243,7 @@ void motor_thread_entry(void *p1, void *p2, void *p3) {
             k_event_wait(&system_events, EVENT_EXPOSURE_COMPLETE | EVENT_STOP_CAPTURE, false, K_FOREVER);
         }
 
-        gpio_pin_set_dt(&motor_enable, 0);
+        gpio_pin_set_dt(&motor_enable, 0); // Disable motor
         atomic_dec(&threads_running);
         k_event_post(&system_events, EVENT_THREAD_STOPPED);
     }

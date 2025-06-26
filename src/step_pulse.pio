@@ -1,0 +1,16 @@
+.program step_pulse
+.wrap_target
+  pull
+  set y, 1                  ; y is the counter of number of delays remaining in the OSR
+per_delay:
+  out x, 16                 ; shift 16 bits into the X register from the OSR
+  set pins, 1 [14]          ; high for 15 cycles
+  set pins, 0 [12]          ; low for 13 cycles
+  jmp !x afterdelay         ; if X=0, skip delay entirely
+  jmp x-- delayloop         ; pre-decrement X, then enter loop
+delayloop:
+  nop [29]                  ; 30 cycles
+  jmp x-- delayloop         ; loop while X > 0
+afterdelay:
+  jmp y-- per_delay         ; process next number
+.wrap

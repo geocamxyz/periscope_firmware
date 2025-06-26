@@ -256,6 +256,10 @@
 //	counter-mode = "external-clock";
 };
 
+&pio0 {
+	status = "okay";
+};
+
 
 zephyr_udc0: &usbd {
 	status = "okay";

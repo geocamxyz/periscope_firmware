@@ -17,6 +17,9 @@
 // When the camera has finished the exposure
 #define EVENT_EXPOSURE_COMPLETE BIT(6)
 
+#define EVENT_TRIGGER_STEPS     BIT(7)
+#define EVENT_STEPS_COMPLETE    BIT(8)
+
 extern struct k_event system_events;
 extern atomic_t system_capturing;
 extern atomic_t threads_running;
